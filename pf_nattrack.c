@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/queue.h>
+
+#include <sys/socket.h>
 
 // network libs
 #include <net/if.h>
@@ -12,15 +15,15 @@
 #include <netdb.h>
 
 
-
 #include "pf_nattrack.h"
+#include "hash.h"
 
 
 u_long   pf_hashmask;
 static u_long  pf_hashsize;
 static uint32_t  pf_hashseed;
 
-struct pf_nattrack_list *pfnt_hash;
+struct pf_nattrack_hash *pfnt_hash;
 
 /*
  * hashkey()
@@ -30,7 +33,7 @@ struct pf_nattrack_list *pfnt_hash;
 uint32_t hashkey(struct pf_nattrack *nt) {
    uint32_t h;
 
-   h = jenkins_hash32((uint32_t *)c,
+   h = jenkins_hash32((uint32_t *)nt,
                 sizeof(struct pf_nattrack)/sizeof(uint32_t),
                 pf_hashseed);
 
@@ -50,7 +53,7 @@ void initialize() {
 
    pf_hashseed = arc4random();
 
-   pfnt_hash = malloc(pf_hashsize * sizeof(struct pf_nattrack_list));
+   pfnt_hash = (struct pf_nattrack_hash *)calloc(sizeof(struct pf_nattrack_hash), pf_hashsize);
 }
 
 
@@ -60,16 +63,124 @@ void initialize() {
  * print out the NAT tuple
  */
 void print_nattrack(struct pf_nattrack *nt, int opts) {
-   printf("TODO: print_nattrack()\n");
+   char buf[INET_ADDRSTRLEN];
+
+   if (!nt) return;
+   switch (nt->af) {
+   case AF_INET:
+
+      // original source address and port
+      printf("osrc=");
+      if (inet_ntop(nt->af, &nt->osrc, buf, sizeof(buf)) == NULL)
+         printf("?");
+      else
+         printf("%s", buf);
+      printf(":%u", ntohs(nt->osport));
+
+      // translated source address and port
+      printf(" tdst=");
+      if (inet_ntop(nt->af, &nt->tsrc, buf, sizeof(buf)) == NULL)
+         printf("?");
+      else
+         printf("%s", buf);
+      printf(":%u", ntohs(nt->tsport));
+
+      // original destination address and port
+      printf(" odst=");
+      if (inet_ntop(nt->af, &nt->odst, buf, sizeof(buf)) == NULL)
+         printf("?");
+      else
+         printf("%s", buf);
+      printf(":%u", ntohs(nt->odport));
+
+      // translated destination address and port
+      printf(" tdst=");
+      if (inet_ntop(nt->af, &nt->tdst, buf, sizeof(buf)) == NULL)
+         printf("?");
+      else
+         printf("%s", buf);
+      printf(":%u", ntohs(nt->tdport));
+
+      // TODO: print duration
+      // TODO: print protocol
+      // TODO: should store interface?
+
+      printf("\n");
+      break;
+   default:
+      printf("ERROR: unknown or unsupportted address family\n");
+   }
+}
+
+void free_list(struct pf_nattrack_list **l) {
+   struct pf_nattrack_list *item;
+   struct pf_nattrack_hash *pfnth;
+
+   while(*l) {
+      item = *l;
+      print_nattrack(item->nt, 0);
+      pfnth = &pfnt_hash[hashkey(item->nt)];
+      ldel(&pfnth->list, item->ref);
+      ldel(l, item);
+      free(item->ref);
+      free(item->nt);
+      free(item);
+   }
+}
+
+struct pf_nattrack * read_input(struct pf_nattrack *node) {
+   char osrc[30], tsrc[30], dst[30], dir[10];
+   int o_sport, t_sport, dport;
+
+   scanf("\n%[^:]:%d (%[^:]:%d) %s %[^:]:%d",osrc, &o_sport, tsrc, &t_sport, dir, dst, &dport);
+   printf("osrc=%s o_sport=%d tsrc=%s t_sport=%d dst=%s dport=%d\n", osrc, o_sport, tsrc, t_sport, dst, dport);
+
+   memset(node, 0, sizeof(struct pf_nattrack));
+
+   // original source address and port
+   if (!inet_pton(AF_INET, osrc, &node->osrc.v4)) {
+      printf("ERROR: invalid v4 addr (osrc=%s)\n", osrc);
+      return NULL;
+   }
+   node->osport = htons(o_sport);
+
+   // translated source address and port
+   if (!inet_pton(AF_INET, tsrc, &node->tsrc.v4)) {
+      printf("ERROR: invalid v4 addr (osrc=%s)\n", tsrc);
+      return NULL;
+   }
+   node->tsport = htons(t_sport);
+
+   // original destination address and port
+   // TODO: change to odst
+   if (!inet_pton(AF_INET, dst, &node->odst.v4)) {
+      printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
+      return NULL;
+   }
+   node->odport = htons(dport);
+
+   // translated destination address and port
+   // TODO: change to tdst
+   if (!inet_pton(AF_INET, dst, &node->tdst.v4)) {
+      printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
+      return NULL;
+   }
+   node->tdport = htons(dport);
+
+   node->af = AF_INET;
+
+   return node;
 }
 
 
 int main() {
-   char osrc[30], tsrc[30], dst[30], dir[10];
-   struct pf_nattrack_list *pfnt = NULL, *item, item2;
+   struct pf_nattrack_hash *pfnth = NULL;
+   struct pf_nattrack_list *item, *item2;
    struct pf_nattrack_list *lastlist = NULL, *freelist;
    struct pf_nattrack node, *nodep;
-   int i, found,o_sport,t_sport,dport;
+   int i;
+
+   initialize();
 
    do {
       printf("\n\n===================================\n");
@@ -79,54 +190,12 @@ int main() {
       freelist = lastlist;
       lastlist = NULL;
       
-      while (scanf("%[^:]:%d (%[^:]:%d) %s %[^:]:%d",osrc, &o_sport, tsrc, &t_sport, dir, dst, &dport) != EOF) {
-         printf("osrc=%s o_sport=%d tsrc=%s t_sport=%d dst=%s dport=%d\n", osrc, o_sport, tsrc, t_sport, dst, dport);
+      while ( scanf("\n%d", &i) != EOF && i != 0) {
+         if (!read_input(&node)) continue;
 
-         memset(&node, 0, sizeof(node));
-         
-         // original source address and port
-         if (!inet_pton(AF_INET, osrc, &node.osrc.v4)) {
-            printf("ERROR: invalid v4 addr (osrc=%s)\n", osrc);
-            continue;
-         }
-         node.osport = hston(o_sport);
+         pfnth = &pfnt_hash[hashkey(&node)];
 
-         // translated source address and port
-         if (!inet_pton(AF_INET, tsrc, &node.tsrc.v4)) {
-            printf("ERROR: invalid v4 addr (osrc=%s)\n", tsrc);
-            continue;
-         }
-         node.tsport = hston(t_sport);
-         
-         // original destination address and port
-         // TODO: change to odst
-         if (!inet_pton(AF_INET, dst, &node.odst.v4)) {
-            printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
-            continue;
-         }
-         node.odport = hston(dport);
-
-         // translated destination address and port
-         // TODO: change to tdst
-         if (!inet_pton(AF_INET, dst, &node.tdst.v4)) {
-            printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
-            continue;
-         }
-         node.tdport = hston(dport);
-
-         pfnt = &pfnt_hash[hashkey(&node)];
-
-         //found = 0;
-         //printf("novo item %d\n", i);
-         //for(item=head; item != NULL ; item=item->next) {
-         //   novo = (struct meutipo *)item->data;
-         //   if (novo->val == i) {
-         //      found = 1;
-         //      break;
-         //   }
-         //}
-         item = lfind(pfnt, &node);
-
+         item = lfind(pfnth->list, &node);
 
          if (item) {
             printf("Item found! Deleting from freelist\n");
@@ -142,7 +211,7 @@ int main() {
             item2 = (struct pf_nattrack_list *)malloc(
                   sizeof(struct pf_nattrack_list));
             item2->nt = nodep;
-            ladd(&pfnt, item);
+            ladd(&pfnth->list, item);
             item->ref = item2;
          }
          ladd(&lastlist, item2);
@@ -150,24 +219,19 @@ int main() {
       }
       printf("done\n");
       printf("-> removendo itens da freelist\n");
-      while(freelist) {
-         item = freelist;
-         print_nattrack(item->nt, 0);
-         list_del(&pfnt_hash[hashkey(item->nt)], item->ref);
-         list_del(&freelist, item);
-         free(item->ref);
-         free(item->nt);
-         free(item);
-      }
+      free_list(&freelist);
       printf("-> items armazenados:\n");
       for(i=0; i <= pf_hashmask; i++) {
-         for(item=&pfnt_hash[i]; item; item=item->next) {
+         for(item=pfnt_hash[i].list; item; item=item->next) {
             print_nattrack(item->nt, 0);
          }
       }
 
       printf("Nova rodada? (1 = sim) ");
-   } while(scanf("%d", &i) != EOF);
+   } while(scanf("\n%d", &i) != EOF && i != 0);
+
+   free_list(&lastlist);
+   free(pfnt_hash);
 
    return 0;
 }

@@ -2,6 +2,8 @@
 #define _PF_NATTRACK_H_
 
 #include <stdlib.h>
+#include <net/if.h>
+#include <net/pfvar.h>
 
 struct pf_nattrack {
    struct pf_addr osrc,odst,tsrc,tdst; // original/translated source/dest.
@@ -19,11 +21,15 @@ struct pf_nattrack_list {
    struct pf_nattrack *nt;
 };
 
+struct pf_nattrack_hash {
+   struct pf_nattrack_list *list;
+};
+
 void ladd(struct pf_nattrack_list **head, struct pf_nattrack_list *no);
 void laddref(struct pf_nattrack_list **head, struct pf_nattrack_list *no, 
       struct pf_nattrack_list *ref);
 void ldel(struct pf_nattrack_list **head, struct pf_nattrack_list *no);
 struct pf_nattrack_list *lfind(struct pf_nattrack_list *head, 
-      struct pf_nattrack *data);
+      struct pf_nattrack *nt);
 
 #endif
