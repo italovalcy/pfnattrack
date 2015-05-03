@@ -133,7 +133,7 @@ struct pf_nattrack * read_input(struct pf_nattrack *node) {
    int o_sport, t_sport, dport;
 
    scanf("\n%[^:]:%d (%[^:]:%d) %s %[^:]:%d",osrc, &o_sport, tsrc, &t_sport, dir, dst, &dport);
-   printf("osrc=%s o_sport=%d tsrc=%s t_sport=%d dst=%s dport=%d\n", osrc, o_sport, tsrc, t_sport, dst, dport);
+   //printf("osrc=%s o_sport=%d tsrc=%s t_sport=%d dst=%s dport=%d\n", osrc, o_sport, tsrc, t_sport, dst, dport);
 
    memset(node, 0, sizeof(struct pf_nattrack));
 
@@ -183,9 +183,9 @@ int main() {
    initialize();
 
    do {
-      printf("\n\n===================================\n");
-      printf("Nova rodada\n");
-      printf("===================================\n");
+      //printf("\n\n===================================\n");
+      //printf("Nova rodada\n");
+      //printf("===================================\n");
 
       freelist = lastlist;
       lastlist = NULL;
@@ -198,11 +198,11 @@ int main() {
          item = lfind(pfnth->list, &node);
 
          if (item) {
-            printf("Item found! Deleting from freelist\n");
+            //printf("Item found! Deleting from freelist\n");
             item2 = item->ref;
             ldel(&freelist, item2);
          } else {
-            printf("Not found. Inserting...\n");
+            //printf("Not found. Inserting...\n");
             nodep = (struct pf_nattrack *)malloc(sizeof(struct pf_nattrack));
             *nodep = node;
             item = (struct pf_nattrack_list *)malloc(
@@ -217,17 +217,17 @@ int main() {
          ladd(&lastlist, item2);
          item2->ref = item;
       }
-      printf("done\n");
-      printf("-> removendo itens da freelist\n");
+      //printf("done\n");
+      //printf("-> removendo itens da freelist\n");
       free_list(&freelist);
-      printf("-> items armazenados:\n");
-      for(i=0; i <= pf_hashmask; i++) {
-         for(item=pfnt_hash[i].list; item; item=item->next) {
-            print_nattrack(item->nt, 0);
-         }
-      }
+      //printf("-> items armazenados:\n");
+      //for(i=0; i <= pf_hashmask; i++) {
+      //   for(item=pfnt_hash[i].list; item; item=item->next) {
+      //      print_nattrack(item->nt, 0);
+      //   }
+      //}
 
-      printf("Nova rodada? (1 = sim) ");
+      //printf("Nova rodada? (1 = sim) ");
    } while(scanf("\n%d", &i) != EOF && i != 0);
 
    free_list(&lastlist);
