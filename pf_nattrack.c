@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/queue.h>
-
-#include <sys/socket.h>
+#include <sys/ioctl.h>
 
 // network libs
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <net/pfvar.h>
@@ -13,7 +16,6 @@
 #include <altq/altq.h>
 #include <sys/sysctl.h>
 #include <netdb.h>
-
 
 #include "pf_nattrack.h"
 #include "hash.h"
@@ -56,6 +58,20 @@ void initialize() {
    pfnt_hash = (struct pf_nattrack_hash *)calloc(sizeof(struct pf_nattrack_hash), pf_hashsize);
 }
 
+/*
+ * printerror()
+ *
+ * function used to print out an error message
+ */
+static void
+printerror(char *s)
+{
+	char *msg;
+	msg = strerror(errno);
+	fprintf(stderr, "ERROR: %s: %s\n", s, msg);
+	return;
+}
+
 
 /*
  * print_nattrack()
@@ -64,18 +80,25 @@ void initialize() {
  */
 void print_nattrack(struct pf_nattrack *nt, int opts) {
    char buf[INET_ADDRSTRLEN];
+   time_t rawtime;
+   struct tm * timeinfo;
+   char fmttime[80];
+
+   time (&rawtime);
+   timeinfo = localtime (&rawtime);
+   strftime(fmttime,80,"%Y-%m-%d,%H:%M:%S",timeinfo);
 
    if (!nt) return;
    switch (nt->af) {
    case AF_INET:
 
       // original source address and port
-      printf("osrc=");
+      printf("%s osrc=", fmttime);
       if (inet_ntop(nt->af, &nt->osrc, buf, sizeof(buf)) == NULL)
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", ntohs(nt->osport));
+      printf(":%u", nt->osport);
 
       // translated source address and port
       printf(" tdst=");
@@ -83,7 +106,7 @@ void print_nattrack(struct pf_nattrack *nt, int opts) {
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", ntohs(nt->tsport));
+      printf(":%u", nt->tsport);
 
       // original destination address and port
       printf(" odst=");
@@ -91,7 +114,7 @@ void print_nattrack(struct pf_nattrack *nt, int opts) {
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", ntohs(nt->odport));
+      printf(":%u", nt->odport);
 
       // translated destination address and port
       printf(" tdst=");
@@ -99,9 +122,9 @@ void print_nattrack(struct pf_nattrack *nt, int opts) {
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", ntohs(nt->tdport));
+      printf(":%u", nt->tdport);
 
-      // TODO: print duration
+      printf(" duration=%u", nt->duration);
       // TODO: print protocol
       // TODO: should store interface?
 
@@ -128,6 +151,54 @@ void free_list(struct pf_nattrack_list **l) {
    }
 }
 
+uint8_t convert_state(struct pfsync_state *state, struct pf_nattrack *node) {
+	struct pfsync_state_key *orig, *trans;
+   uint8_t src, dst;
+
+	if (state->direction == PF_OUT) {
+      src = 1; dst = 0;
+      orig  = &state->key[PF_SK_STACK];
+      trans = &state->key[PF_SK_WIRE];
+   } else {
+      src = 0; dst = 1;
+      orig = &state->key[PF_SK_WIRE];
+      trans = &state->key[PF_SK_STACK];
+   }
+
+   // check if it is a NAT:
+   //   key_wire == key_stack  --> NO NAT
+   //   key_wire != key_stack  --> NAT
+   if (state->af != AF_INET ||
+         (PF_AEQ(&orig->addr[src], &trans->addr[src], state->af) &&
+         PF_AEQ(&orig->addr[dst], &trans->addr[dst], state->af) &&
+         orig->port[src] == trans->port[src] &&
+         orig->port[dst] == trans->port[dst])) {
+      printf("NO_NAT!\n");
+      return 0;
+   }
+
+   memset(node, 0, sizeof(struct pf_nattrack));
+
+   node->osrc.v4 = orig->addr[src].v4;
+   node->tsrc.v4 = trans->addr[src].v4;
+   node->odst.v4 = orig->addr[dst].v4;
+   node->tdst.v4 = trans->addr[dst].v4;
+   node->osport = ntohs(orig->port[src]);
+   node->tsport = ntohs(trans->port[src]);
+   node->odport = ntohs(orig->port[dst]);
+   node->tdport = ntohs(trans->port[dst]);
+   node->af = state->af;
+   node->proto = state->proto;
+   node->duration = ntohl(state->creation) + ntohl(state->expire);
+
+   return 1;
+}
+
+/*
+uint8_t pf_getstates(struct pf_nattrack *node) {
+}
+*/
+
 struct pf_nattrack * read_input(struct pf_nattrack *node) {
    char osrc[30], tsrc[30], dst[30], dir[10];
    int o_sport, t_sport, dport;
@@ -142,14 +213,14 @@ struct pf_nattrack * read_input(struct pf_nattrack *node) {
       printf("ERROR: invalid v4 addr (osrc=%s)\n", osrc);
       return NULL;
    }
-   node->osport = htons(o_sport);
+   node->osport = o_sport;
 
    // translated source address and port
    if (!inet_pton(AF_INET, tsrc, &node->tsrc.v4)) {
       printf("ERROR: invalid v4 addr (osrc=%s)\n", tsrc);
       return NULL;
    }
-   node->tsport = htons(t_sport);
+   node->tsport = t_sport;
 
    // original destination address and port
    // TODO: change to odst
@@ -157,7 +228,7 @@ struct pf_nattrack * read_input(struct pf_nattrack *node) {
       printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
       return NULL;
    }
-   node->odport = htons(dport);
+   node->odport = dport;
 
    // translated destination address and port
    // TODO: change to tdst
@@ -165,7 +236,7 @@ struct pf_nattrack * read_input(struct pf_nattrack *node) {
       printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
       return NULL;
    }
-   node->tdport = htons(dport);
+   node->tdport = dport;
 
    node->af = AF_INET;
 
@@ -178,9 +249,15 @@ int main() {
    struct pf_nattrack_list *item, *item2;
    struct pf_nattrack_list *lastlist = NULL, *freelist;
    struct pf_nattrack node, *nodep;
-   int i;
+   int i, dev;
 
    initialize();
+
+   dev = open("/dev/pf", O_RDWR);
+   if (dev < 0) {
+      printerror("open(/dev/pf)");
+      return 1;
+   }
 
    do {
       //printf("\n\n===================================\n");
@@ -190,6 +267,72 @@ int main() {
       freelist = lastlist;
       lastlist = NULL;
       
+      struct pfioc_states ps;
+      struct pfsync_state *p;
+      char *inbuf = NULL, *newinbuf = NULL;
+      unsigned int len = 0;
+      int i, opts = 0;
+
+      memset(&ps, 0, sizeof(ps));
+      for (;;) {
+         ps.ps_len = len;
+         if (len) {
+            newinbuf = realloc(inbuf, len);
+            if (newinbuf == NULL) {
+               printerror("error realloc - out of memory?");
+               goto done;
+            }
+            ps.ps_buf = inbuf = newinbuf;
+         }
+         if (ioctl(dev, DIOCGETSTATES, &ps) < 0) {
+            printerror("failed to get states from PF device");
+            goto done;
+         }
+         if (ps.ps_len + sizeof(struct pfioc_states) < len)
+            break;
+         if (len == 0 && ps.ps_len == 0)
+            goto done;
+         if (len == 0 && ps.ps_len != 0)
+            len = ps.ps_len;
+         if (ps.ps_len == 0)
+            goto done;	/* no states */
+         len *= 2;
+      }
+      p = ps.ps_states;
+      for (i = 0; i < ps.ps_len; i += sizeof(*p), p++) {
+         if (!convert_state(p, &node)) continue;
+
+         pfnth = &pfnt_hash[hashkey(&node)];
+
+         item = lfind(pfnth->list, &node);
+
+         if (item) {
+            //printf("Item found! Deleting from freelist\n");
+            item2 = item->ref;
+            ldel(&freelist, item2);
+         } else {
+            //printf("Not found. Inserting...\n");
+            nodep = (struct pf_nattrack *)malloc(sizeof(struct pf_nattrack));
+            *nodep = node;
+            item = (struct pf_nattrack_list *)malloc(
+                  sizeof(struct pf_nattrack_list));
+            item->nt = nodep;
+            item2 = (struct pf_nattrack_list *)malloc(
+                  sizeof(struct pf_nattrack_list));
+            item2->nt = nodep;
+            ladd(&pfnth->list, item);
+            item->ref = item2;
+         }
+         ladd(&lastlist, item2);
+         item2->ref = item;
+      }
+done:
+      free(inbuf);
+      free_list(&freelist);
+
+      sleep(PFTM_INTERVAL);
+   } while(1);
+      /* comentando para trabalhar com o get_states
       while ( scanf("\n%d", &i) != EOF && i != 0) {
          if (!read_input(&node)) continue;
 
@@ -229,6 +372,7 @@ int main() {
 
       //printf("Nova rodada? (1 = sim) ");
    } while(scanf("\n%d", &i) != EOF && i != 0);
+   */ // comentando para get_states
 
    free_list(&lastlist);
    free(pfnt_hash);
