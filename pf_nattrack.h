@@ -5,13 +5,16 @@
 #include <net/if.h>
 #include <net/pfvar.h>
 
-struct pf_nattrack {
+struct conn {
    struct pf_addr osrc,odst,tsrc,tdst; // original/translated source/dest.
    u_int16_t      osport,tsport,odport,tdport; // original/translated ports
+};
+
+struct pf_nattrack {
+   struct conn    c;
    sa_family_t    af;
    u_int8_t       proto;
    u_int32_t      duration;
-   u_int8_t       pad[2];  // needed to be 32bits mutiple
 };
 
 struct pf_nattrack_list {

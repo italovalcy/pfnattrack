@@ -35,8 +35,8 @@ struct pf_nattrack_hash *pfnt_hash;
 uint32_t hashkey(struct pf_nattrack *nt) {
    uint32_t h;
 
-   h = jenkins_hash32((uint32_t *)nt,
-                sizeof(struct pf_nattrack)/sizeof(uint32_t),
+   h = jenkins_hash32((uint32_t *)&nt->c,
+                sizeof(struct conn)/sizeof(uint32_t),
                 pf_hashseed);
 
    return (h & pf_hashmask);
@@ -91,41 +91,42 @@ void print_nattrack(struct pf_nattrack *nt, int opts) {
    if (!nt) return;
    switch (nt->af) {
    case AF_INET:
+      // date/time and protocol
+      printf("%s proto=%u", fmttime, nt->proto);
 
       // original source address and port
-      printf("%s osrc=", fmttime);
-      if (inet_ntop(nt->af, &nt->osrc, buf, sizeof(buf)) == NULL)
+      printf(" osrc=");
+      if (inet_ntop(nt->af, &nt->c.osrc, buf, sizeof(buf)) == NULL)
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", nt->osport);
+      printf(":%u", nt->c.osport);
 
       // translated source address and port
-      printf(" tdst=");
-      if (inet_ntop(nt->af, &nt->tsrc, buf, sizeof(buf)) == NULL)
+      printf(" tsrc=");
+      if (inet_ntop(nt->af, &nt->c.tsrc, buf, sizeof(buf)) == NULL)
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", nt->tsport);
+      printf(":%u", nt->c.tsport);
 
       // original destination address and port
       printf(" odst=");
-      if (inet_ntop(nt->af, &nt->odst, buf, sizeof(buf)) == NULL)
+      if (inet_ntop(nt->af, &nt->c.odst, buf, sizeof(buf)) == NULL)
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", nt->odport);
+      printf(":%u", nt->c.odport);
 
       // translated destination address and port
       printf(" tdst=");
-      if (inet_ntop(nt->af, &nt->tdst, buf, sizeof(buf)) == NULL)
+      if (inet_ntop(nt->af, &nt->c.tdst, buf, sizeof(buf)) == NULL)
          printf("?");
       else
          printf("%s", buf);
-      printf(":%u", nt->tdport);
+      printf(":%u", nt->c.tdport);
 
       printf(" duration=%u", nt->duration);
-      // TODO: print protocol
       // TODO: should store interface?
 
       printf("\n");
@@ -173,20 +174,20 @@ uint8_t convert_state(struct pfsync_state *state, struct pf_nattrack *node) {
          PF_AEQ(&orig->addr[dst], &trans->addr[dst], state->af) &&
          orig->port[src] == trans->port[src] &&
          orig->port[dst] == trans->port[dst])) {
-      printf("NO_NAT!\n");
+      //printf("NO_NAT!\n");
       return 0;
    }
 
    memset(node, 0, sizeof(struct pf_nattrack));
 
-   node->osrc.v4 = orig->addr[src].v4;
-   node->tsrc.v4 = trans->addr[src].v4;
-   node->odst.v4 = orig->addr[dst].v4;
-   node->tdst.v4 = trans->addr[dst].v4;
-   node->osport = ntohs(orig->port[src]);
-   node->tsport = ntohs(trans->port[src]);
-   node->odport = ntohs(orig->port[dst]);
-   node->tdport = ntohs(trans->port[dst]);
+   node->c.osrc.v4 = orig->addr[src].v4;
+   node->c.tsrc.v4 = trans->addr[src].v4;
+   node->c.odst.v4 = orig->addr[dst].v4;
+   node->c.tdst.v4 = trans->addr[dst].v4;
+   node->c.osport = ntohs(orig->port[src]);
+   node->c.tsport = ntohs(trans->port[src]);
+   node->c.odport = ntohs(orig->port[dst]);
+   node->c.tdport = ntohs(trans->port[dst]);
    node->af = state->af;
    node->proto = state->proto;
    node->duration = ntohl(state->creation) + ntohl(state->expire);
@@ -209,34 +210,34 @@ struct pf_nattrack * read_input(struct pf_nattrack *node) {
    memset(node, 0, sizeof(struct pf_nattrack));
 
    // original source address and port
-   if (!inet_pton(AF_INET, osrc, &node->osrc.v4)) {
+   if (!inet_pton(AF_INET, osrc, &node->c.osrc.v4)) {
       printf("ERROR: invalid v4 addr (osrc=%s)\n", osrc);
       return NULL;
    }
-   node->osport = o_sport;
+   node->c.osport = o_sport;
 
    // translated source address and port
-   if (!inet_pton(AF_INET, tsrc, &node->tsrc.v4)) {
+   if (!inet_pton(AF_INET, tsrc, &node->c.tsrc.v4)) {
       printf("ERROR: invalid v4 addr (osrc=%s)\n", tsrc);
       return NULL;
    }
-   node->tsport = t_sport;
+   node->c.tsport = t_sport;
 
    // original destination address and port
    // TODO: change to odst
-   if (!inet_pton(AF_INET, dst, &node->odst.v4)) {
+   if (!inet_pton(AF_INET, dst, &node->c.odst.v4)) {
       printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
       return NULL;
    }
-   node->odport = dport;
+   node->c.odport = dport;
 
    // translated destination address and port
    // TODO: change to tdst
-   if (!inet_pton(AF_INET, dst, &node->tdst.v4)) {
+   if (!inet_pton(AF_INET, dst, &node->c.tdst.v4)) {
       printf("ERROR: invalid v4 addr (odst=%s)\n", dst);
       return NULL;
    }
-   node->tdport = dport;
+   node->c.tdport = dport;
 
    node->af = AF_INET;
 
@@ -309,6 +310,7 @@ int main() {
          if (item) {
             //printf("Item found! Deleting from freelist\n");
             item2 = item->ref;
+            *(item2->nt) = node;
             ldel(&freelist, item2);
          } else {
             //printf("Not found. Inserting...\n");

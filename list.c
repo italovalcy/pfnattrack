@@ -41,7 +41,8 @@ struct pf_nattrack_list *lfind(struct pf_nattrack_list *head,
       return NULL;
 
    do {
-      if (memcmp(it->nt, nt, sizeof(struct pf_nattrack)) == 0)
+      if (memcmp(&it->nt->c, &nt->c, sizeof(struct conn)) == 0 
+            && it->nt->proto == nt->proto)
          return it;
       it = it->next;
    } while (it);
