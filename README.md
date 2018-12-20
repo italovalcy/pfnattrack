@@ -8,6 +8,12 @@ Using PFNATTRACK you will get logs such as:
 2016-06-19,22:07:05 proto=17 osrc=192.168.100.105:37205 tsrc=192.168.25.4:22834 odst=8.8.8.8:53 tdst=8.8.8.8:53 duration=30
 ```
 
+## Compiling
+
+```
+cc -o pf_nattrack *.c
+```
+
 ## Running
 
 Just launch PFNATTRACK by running:
