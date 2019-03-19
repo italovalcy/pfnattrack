@@ -10,8 +10,12 @@ Using PFNATTRACK you will get logs such as:
 
 ## Compiling
 
+Use the given Makefile to compile :
+
+
 ```
-cc -o pf_nattrack *.c
+make
+
 ```
 
 ## Running
