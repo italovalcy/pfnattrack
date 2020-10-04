@@ -4,9 +4,10 @@ PFNATTRACK is a tool that can be used to keep track and logging of NAT translati
 
 Using PFNATTRACK you will get logs such as:
 ```
-2020-09-27 20:44:56 UTC proto=6 osrc=10.10.0.100:54191 odst=172.217.21.202:443 tsrc=10.0.0.248:50444 tdst=172.217.21.202:443 duration=90
-2020-09-27 20:44:56 UTC proto=6 osrc=10.10.0.100:35183 odst=172.217.21.202:443 tsrc=10.0.0.248:10176 tdst=172.217.21.202:443 duration=90
-2020-09-27 20:44:56 UTC proto=6 osrc=10.10.0.100:52096 odst=172.217.21.202:443 tsrc=10.0.0.248:30599 tdst=172.217.21.202:443 duration=90
+2020-10-04 17:05:30 UTC tcp osrc=10.10.0.100:42425 (7c:0b:c6:xx:yy:zz) odst=172.217.21.202:443 tsrc=10.0.0.248:54592 tdst=172.217.21.202:443 duration=90
+2020-10-04 17:05:30 UTC udp osrc=10.10.0.1:123 (00:1b:21:xx:yy:zz) odst=195.24.76.190:123 tsrc=10.0.0.248:9689 tdst=195.24.76.190:123 duration=34
+2020-10-04 17:06:00 UTC tcp osrc=10.10.0.100:34461 (7c:0b:c6:xx:yy:zz) odst=172.217.21.202:443 tsrc=10.0.0.248:49865 tdst=172.217.21.202:443 duration=90
+2020-10-04 17:06:15 UTC tcp osrc=10.10.0.100:38741 (7c:0b:c6:xx:yy:zz) odst=172.217.21.202:443 tsrc=10.0.0.248:4535 tdst=172.217.21.202:443 duration=90
 ```
 
 ## Compiling
