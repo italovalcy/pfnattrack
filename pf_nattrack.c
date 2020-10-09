@@ -284,6 +284,9 @@ void print_nattrack(FILE *file, struct pf_nattrack *nt) {
  */
 int rek_mkdir(char *path)
 {
+  if (path[0] == (char) NULL)
+    return (-1);
+
   char *sep = strrchr(path, '/');
   if (sep != NULL) {
     *sep = 0;
@@ -291,7 +294,7 @@ int rek_mkdir(char *path)
     *sep = '/';
   }
   
-  if (mkdir(path, 0777) && errno != EEXIST) {
+  if (mkdir(path, 0755) && errno != EEXIST) {
     char *str;
     // allocate memory
     int size = 33 + strlen(path);
