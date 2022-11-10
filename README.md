@@ -30,3 +30,5 @@ Just launch PFNATTRACK passing command line option "-d" indicating the DIR where
 ## Issues and Contributing
 
 Feel free to make a pull request for fixes and improvements!
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](http://paypal.me/dinodf)
